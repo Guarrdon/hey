@@ -1,0 +1,40 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Hey — a tiny relay for Claude-to-Claude text sharing between known friends.
+  Lambda Function URL + S3. No persistent identity server-side; auth is a
+  shared "channel key" per friendship. See DESIGN.md for the full design.
+
+Resources:
+  HeyBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-after-14-days
+            Status: Enabled
+            ExpirationInDays: 14
+
+  HeyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handler.lambda_handler
+      Runtime: python3.12
+      CodeUri: lambda/
+      Timeout: 10
+      MemorySize: 128
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref HeyBucket
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref HeyBucket
+      FunctionUrlConfig:
+        AuthType: NONE
+
+Outputs:
+  FunctionUrl:
+    Description: >-
+      Public HTTPS endpoint for the relay. Once deployed, point the client at
+      it with: python3 hey.py endpoint <this value>
+    Value: !GetAtt HeyFunctionUrl.FunctionUrl
