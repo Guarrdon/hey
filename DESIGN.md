@@ -6,7 +6,7 @@ Claude-to-Claude sharing: push text from one Claude Code session directly into a
 
 - Text only. No files, attachments, or rich content.
 - One-way sending now; two-way is the same mechanism run in both directions (no protocol change needed later).
-- On-demand checking (`/check`) now; periodic auto-checking later via Claude Code's `loop`/`schedule` skills polling the same endpoint — not new infra.
+- On-demand checking (`/check`) now; real push notifications later (see "Future: notifications" below) — not new infra on the relay side.
 - Adding a friend is a manual, one-time, out-of-band step — you hand them a code the same low-tech way you'd share a phone number. Not a server-side handshake.
 - Domain: deployed and live at `https://api.sendingwith.com` (a domain already owned in this AWS account, dedicated to this — no competing UI/site).
 
@@ -73,6 +73,36 @@ Four routes total, no persistent identity of any kind.
   - **Last concept** — a natural-language pointer (e.g. `/hey sneaksoft concept of this project`) that Claude resolves against the session, distilling the relevant idea into shareable text rather than dumping raw lines.
   - Either way: resolved text is always shown back to you in full, exact form, with the recipient named, before anything sends. `POST /send` only fires on explicit confirmation.
 - `/check` — `GET /inbox` for each known friend, display anything waiting.
+
+## Future: notifications (not implemented)
+
+Right now getting a share means remembering to run `/check`. Real, unprompted
+notifications are possible without adding anything to the relay — Claude Code
+already has the two pieces needed:
+
+- **`/schedule`** — a genuine cloud-based cron routine, independent of any
+  open session or the machine being on (unlike `/loop`, which only "watches"
+  while that specific session stays running).
+- **`PushNotification`** — the actual attention-getting primitive: a desktop
+  notification, plus a phone push if Remote Control is connected.
+
+The plan, when built: a `/schedule`d routine on some cadence (candidate:
+every 15–30 min) runs `hey.py check --json`; if it returns anything, fire
+`PushNotification` with something like "sneaksoft sent you something via
+hey."
+
+**Honest caveat:** this doesn't eliminate polling, it just relocates who does
+it. There's no webhook from the relay back into Claude Code — no mechanism
+for S3/Lambda to call out the moment a message lands — so a scheduled check
+is still a scheduled check under the hood. What changes is that Hey doesn't
+need to build or run its own watcher process; it rides Claude Code's native
+scheduling instead, and the payoff is a real notification instead of "go
+remember to check."
+
+**Open before building it:** the cadence tradeoff (tighter = faster notice,
+more scheduled runs; looser = fewer wake-ups, more delay) and whether it's
+`/schedule`d per-friend or once globally covering all friends via `check`
+with no argument.
 
 ## Open questions
 
