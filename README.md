@@ -87,6 +87,26 @@ python3 ~/.claude/skills/hey/hey.py check sneaksoft # just one friend
 Messages are deleted from the relay the instant they're delivered — there's
 no inbox to manage, nothing to mark as read.
 
+## Testing solo (two identities, one machine)
+
+A single config file can't hold two "sides" of the same friendship — if you
+`friend-new`/`friend-add` yourself under two names in the *same* config,
+both names end up sharing one channel key, not acting as two independent
+parties. To actually test a full pairing + send/check cycle by yourself, give
+each side its own isolated config with `--profile` (or `HEY_PROFILE`):
+
+```
+python3 hey.py --profile a endpoint https://api.sendingwith.com
+python3 hey.py --profile b endpoint https://api.sendingwith.com
+python3 hey.py --profile a friend-new b
+python3 hey.py --profile b friend-add a <code from above>
+echo "test" | python3 hey.py --profile a send b
+python3 hey.py --profile b check
+```
+
+Profiles live under `~/.hey/profiles/<name>/` and never touch your real
+`~/.hey/config.json`.
+
 ## Deploying your own instance instead
 
 Only needed if you're standing up a *different* relay (your own domain, your

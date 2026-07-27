@@ -7,6 +7,7 @@ description: >-
   friend, wants to add a friend via a pairing code, or wants to check for
   incoming shares. Backed by a small AWS relay (Lambda + S3) and a local key
   store at ~/.hey/config.json.
+model: haiku-4-5
 ---
 
 # hey
@@ -74,3 +75,7 @@ python3 ~/.claude/skills/hey/hey.py <command> [args]
   there's no "mark as read" step, and nothing to manage locally beyond names.
 - Text only, one friend at a time, per message. No files, link-attachments, or
   group sharing yet.
+- Runs on Haiku (see `model:` above) since the work here — resolving text,
+  calling the script — is mechanical, not deep reasoning. If "last concept"
+  distillation ever feels off on a subtle request, that's the tradeoff to
+  revisit first.

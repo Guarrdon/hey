@@ -23,6 +23,19 @@ DIR = os.path.join(HOME, ".hey")
 CONFIG = os.path.join(DIR, "config.json")
 
 
+def use_profile(profile):
+    """Point DIR/CONFIG at an isolated profile directory instead of the default.
+
+    Lets one machine hold multiple independent local identities (e.g. to test
+    a full pairing + send/check cycle solo) without them sharing a config
+    file — two names in the same config would share a channel key, not be
+    two separate parties.
+    """
+    global DIR, CONFIG
+    DIR = os.path.join(HOME, ".hey", "profiles", profile)
+    CONFIG = os.path.join(DIR, "config.json")
+
+
 # ------------------------------------------------------------------ config io
 def load():
     if not os.path.exists(CONFIG):
@@ -159,6 +172,8 @@ def cmd_check(args, data):
 
 def main():
     p = argparse.ArgumentParser(prog="hey", description=__doc__.splitlines()[0])
+    p.add_argument("--profile", help="use an isolated local identity (or set HEY_PROFILE); "
+                                      "for testing two parties solo on one machine")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("endpoint", help="get or set the relay's Function URL")
@@ -188,6 +203,9 @@ def main():
     s.set_defaults(func=cmd_check)
 
     args = p.parse_args()
+    profile = args.profile or os.environ.get("HEY_PROFILE")
+    if profile:
+        use_profile(profile)
     data = load()
     sys.exit(args.func(args, data) or 0)
 
