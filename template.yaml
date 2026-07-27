@@ -2,8 +2,19 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
   Hey — a tiny relay for Claude-to-Claude text sharing between known friends.
-  Lambda Function URL + S3. No persistent identity server-side; auth is a
-  shared "channel key" per friendship. See DESIGN.md for the full design.
+  HTTP API (custom domain) + Lambda + S3. No persistent identity server-side;
+  auth is a shared "channel key" per friendship. See DESIGN.md for the full
+  design.
+
+Parameters:
+  DomainName:
+    Type: String
+    Default: api.sendingwith.com
+    Description: Custom domain the relay is served from.
+  HostedZoneId:
+    Type: String
+    Default: Z042127031L6DALD7K3AA
+    Description: Route53 hosted zone ID for the parent domain (sendingwith.com).
 
 Resources:
   HeyBucket:
@@ -14,6 +25,24 @@ Resources:
           - Id: expire-after-14-days
             Status: Enabled
             ExpirationInDays: 14
+
+  HeyCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref DomainName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZoneId
+
+  HeyHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Domain:
+        DomainName: !Ref DomainName
+        CertificateArn: !Ref HeyCertificate
+        Route53:
+          HostedZoneId: !Ref HostedZoneId
 
   HeyFunction:
     Type: AWS::Serverless::Function
@@ -29,12 +58,20 @@ Resources:
       Policies:
         - S3CrudPolicy:
             BucketName: !Ref HeyBucket
-      FunctionUrlConfig:
-        AuthType: NONE
+      Events:
+        Proxy:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HeyHttpApi
+            Path: /{proxy+}
+            Method: ANY
 
 Outputs:
-  FunctionUrl:
+  Endpoint:
     Description: >-
-      Public HTTPS endpoint for the relay. Once deployed, point the client at
-      it with: python3 hey.py endpoint <this value>
-    Value: !GetAtt HeyFunctionUrl.FunctionUrl
+      Public HTTPS endpoint for the relay. Point the client at it with:
+      python3 hey.py endpoint https://<this value>
+    Value: !Ref DomainName
+  DefaultApiEndpoint:
+    Description: Default API Gateway execute-api URL (useful before DNS/cert finish propagating).
+    Value: !GetAtt HeyHttpApi.ApiEndpoint

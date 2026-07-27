@@ -8,16 +8,17 @@ Claude-to-Claude sharing: push text from one Claude Code session directly into a
 - One-way sending now; two-way is the same mechanism run in both directions (no protocol change needed later).
 - On-demand checking (`/check`) now; periodic auto-checking later via Claude Code's `loop`/`schedule` skills polling the same endpoint — not new infra.
 - Adding a friend is a manual, one-time, out-of-band step — you hand them a code the same low-tech way you'd share a phone number. Not a server-side handshake.
-- Domain: running on AWS's default endpoint for now (Function URL / API Gateway invoke URL); a real custom domain comes later once decided — not a v0 blocker.
+- Domain: deployed and live at `https://api.sendingwith.com` (a domain already owned in this AWS account, dedicated to this — no competing UI/site).
 
 ## Architecture
 
 ```
-[Your Claude Code]  --/hey-->  [Lambda Function URL]  --write-->  [S3 bucket, lifecycle TTL]
-[Friend's Claude Code] <--/check--  [Lambda Function URL]  <--read--  [S3 bucket]
+[Your Claude Code]  --/hey-->  [api.sendingwith.com (HTTP API)]  --write-->  [S3 bucket, lifecycle TTL]
+[Friend's Claude Code] <--/check--  [api.sendingwith.com (HTTP API)]  <--read--  [S3 bucket]
 ```
 
-- **Relay:** AWS Lambda behind a Function URL (no API Gateway needed for this — a Function URL is a direct HTTPS endpoint on the function itself, one less thing to configure). Chosen over Cloudflare because the domains and existing AWS familiarity already live there.
+- **Relay:** AWS Lambda behind an API Gateway HTTP API with a regional custom domain (`api.sendingwith.com`). Started as a plain Lambda Function URL, but a custom domain requires either API Gateway or CloudFront in front of it — HTTP API was picked over CloudFront because it deploys faster (no CDN propagation wait) and its payload format (v2.0) is identical in shape to a Function URL's, so the handler code needed zero changes. Chosen over Cloudflare because the domain and AWS familiarity already live there.
+- **Custom domain wiring:** an ACM certificate (DNS-validated via the Route53 hosted zone), an `AWS::Serverless::HttpApi` with an inline `Domain` block (which auto-creates the API Gateway domain-name resource, base path mapping, and Route53 alias record), and the Lambda wired to it via a proxy (`ANY /{proxy+}`) event. All defined in `template.yaml`.
 - **Storage:** S3. Messages and pairing codes are objects, not rows in a database.
   - **TTL: 14 days** via an S3 Lifecycle rule on the bucket, as a backstop against orphaned data.
   - **Delete-on-read:** the Lambda explicitly deletes an object immediately after a successful read (message delivered via `/check`, or a pairing code redeemed via `/pair/<code>`). The Lifecycle rule only ever catches what's never picked up.
@@ -54,7 +55,7 @@ No global setup step, because there's no account to register. The handoff goes t
 
 The relay never learns who "sneaksoft" or "matt" are — only that someone holding a valid code once gets to redeem one channel key.
 
-## API (Lambda routes, via Function URL)
+## API (Lambda routes, via `https://api.sendingwith.com`)
 
 - `POST /pair` — body `{ channel_key }`, no auth needed (this is the bootstrap step). Generates a 6-digit code, stores `pending/<code> → { channel_key, created_at }` in S3. Returns the code.
 - `GET /pair/<code>` — no auth beyond the code itself. Rejects if `created_at` is older than 24h; otherwise returns the channel key and deletes the object immediately (single redemption).
@@ -79,7 +80,6 @@ Four routes total, no persistent identity of any kind.
 - Key rotation/revocation if a channel key is compromised — probably just "generate a new one and re-share it," no protocol needed since the whole scheme is already manual.
 - Whether `/check` iterates every known friend's key on each call, or takes an optional `<friend>` argument to check just one.
 - Exact boundary of "recent context" (~50 lines is a starting guess — may want to tune once it's actually used).
-- Custom domain for the Function URL — deferred until a domain is chosen.
 
 ## Prior art
 

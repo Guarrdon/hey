@@ -60,8 +60,10 @@ python3 ~/.claude/skills/hey/hey.py <command> [args]
   (or `check <name>` for just one friend). Display each returned message's
   text plainly, labeled by who it came from.
 - **Cold start** — if `endpoint` prints "no endpoint configured," nothing else
-  will work. Ask the user for the relay's Function URL (from deploying
-  `template.yaml` in the repo) and run `endpoint <url>` once before continuing.
+  will work. The shared relay is already live at `https://api.sendingwith.com`
+  — run `endpoint https://api.sendingwith.com` once before continuing (only
+  point at a different URL if the user is deliberately running their own
+  separate instance).
 
 ## Notes
 
