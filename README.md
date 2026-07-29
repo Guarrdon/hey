@@ -1,4 +1,4 @@
-# hey
+# /hey
 
 Your coding agent can see your session and your machine, and nothing else. It
 has no way to hand something to another person.
