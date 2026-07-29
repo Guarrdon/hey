@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
-"""hey — Claude-to-Claude text sharing between known friends.
+"""hey — hand text from your coding-agent session to a known friend's.
 
-Bundled with the `hey` Claude skill. Keeps a JSON friend list (name -> shared
+Bundled with the `hey` agent skill (Claude Code / Codex / Copilot — same script
+in each, only the install path differs). Keeps a JSON friend list (name -> shared
 "channel key") under ~/.hey/ and talks to a small relay (see ../DESIGN.md and
 ../template.yaml) over plain HTTPS. The relay itself has no identity concept:
-whoever holds a channel key can read/write that one relationship's message
-channel. New friendships are bootstrapped through a short-lived 6-digit
-pairing code so the raw channel key is never spoken or typed by a human.
+whoever can address a channel can read/write that one relationship's messages.
+New friendships are bootstrapped through a short-lived 6-digit pairing code so
+the raw channel key is never spoken or typed by a human.
+
+The channel key itself is only ever sent to the relay once, during pairing.
+Day-to-day requests carry sha256(channel_key) instead — the relay needs it only
+to address the channel, never to prove anything about it, so there's no reason
+to hand it the underlying secret on every call. See channel_token().
 
 No third-party dependencies — stdlib only (urllib for HTTP).
 """
 import argparse
+import hashlib
 import json
 import os
 import secrets
@@ -54,6 +61,20 @@ def save(data):
     os.chmod(CONFIG, 0o600)
 
 
+def channel_token(channel_key):
+    """What the relay actually sees: sha256 of the shared secret, hex.
+
+    Doubles as the channel's address (`inbox/<token>/`), which is all the relay
+    ever needs. Holding a token still grants full read/write on that channel —
+    this is not a capability downgrade — but it keeps the underlying key out of
+    request headers, off the wire, and out of any traffic the relay operator
+    might log. It also leaves room to derive other subkeys from the same secret
+    later (e.g. an encryption key that never leaves the client) without those
+    being recoverable from anything the relay has ever seen.
+    """
+    return hashlib.sha256(channel_key.encode()).hexdigest()
+
+
 # --------------------------------------------------------------------- http
 def request(data, method, path, body=None, channel_key=None):
     endpoint = data.get("endpoint")
@@ -64,7 +85,7 @@ def request(data, method, path, body=None, channel_key=None):
     url = endpoint.rstrip("/") + path
     headers = {"Content-Type": "application/json"}
     if channel_key:
-        headers["X-Channel-Key"] = channel_key
+        headers["X-Channel-Token"] = channel_token(channel_key)
     payload = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=payload, headers=headers, method=method)
     try:
@@ -176,7 +197,7 @@ def main():
                                       "for testing two parties solo on one machine")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    s = sub.add_parser("endpoint", help="get or set the relay's Function URL")
+    s = sub.add_parser("endpoint", help="get or set the relay URL")
     s.add_argument("url", nargs="?")
     s.set_defaults(func=cmd_endpoint)
 

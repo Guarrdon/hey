@@ -1,30 +1,71 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  Hey — a tiny relay for Claude-to-Claude text sharing between known friends.
-  HTTP API (custom domain) + Lambda + S3. No persistent identity server-side;
-  auth is a shared "channel key" per friendship. See DESIGN.md for the full
-  design.
+  Hey — a tiny relay for handing text between known friends' coding-agent
+  sessions. HTTP API (custom domain) + Lambda + S3. No persistent identity
+  server-side; auth is a shared "channel key" per friendship. See DESIGN.md
+  for the full design.
 
 Parameters:
   DomainName:
     Type: String
-    Default: api.sendingwith.com
-    Description: Custom domain the relay is served from.
+    Description: >-
+      Custom domain to serve the relay from, e.g. hey.example.com. Must sit
+      under the Route53 hosted zone below.
   HostedZoneId:
     Type: String
-    Default: Z042127031L6DALD7K3AA
-    Description: Route53 hosted zone ID for the parent domain (sendingwith.com).
+    Description: Route53 hosted zone ID for the parent domain.
 
 Resources:
   HeyBucket:
     Type: AWS::S3::Bucket
     Properties:
+      # SSE-S3 is the account default on new objects; declaring it makes the
+      # guarantee auditable from the template instead of implied. Note this
+      # protects the data at rest from AWS-side exposure only — the bucket
+      # owner still reads plaintext, so it is not end-to-end encryption.
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
       LifecycleConfiguration:
         Rules:
           - Id: expire-after-14-days
             Status: Enabled
             ExpirationInDays: 14
+          - Id: abort-incomplete-uploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+          - Id: expire-ratelimit-counters
+            Status: Enabled
+            Prefix: ratelimit/
+            ExpirationInDays: 1
+
+  # Nothing should ever reach this bucket over plain HTTP. Only the Lambda
+  # touches it, and it uses TLS — this denies anything that doesn't.
+  HeyBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref HeyBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !Sub '${HeyBucket.Arn}'
+              - !Sub '${HeyBucket.Arn}/*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': false
 
   HeyCertificate:
     Type: AWS::CertificateManager::Certificate
@@ -43,6 +84,20 @@ Resources:
         CertificateArn: !Ref HeyCertificate
         Route53:
           HostedZoneId: !Ref HostedZoneId
+      # The pairing routes are the only ones a stranger can reach without a
+      # channel token, so they are throttled hard and separately. This runs
+      # ahead of Lambda, so a flood costs nothing and never reaches S3. The
+      # handler applies per-address and global limits behind this.
+      RouteSettings:
+        'GET /pair/{code}':
+          ThrottlingRateLimit: 2
+          ThrottlingBurstLimit: 5
+        'POST /pair':
+          ThrottlingRateLimit: 2
+          ThrottlingBurstLimit: 5
+      DefaultRouteSettings:
+        ThrottlingRateLimit: 20
+        ThrottlingBurstLimit: 40
 
   HeyFunction:
     Type: AWS::Serverless::Function
@@ -59,6 +114,20 @@ Resources:
         - S3CrudPolicy:
             BucketName: !Ref HeyBucket
       Events:
+        # Declared as their own routes purely so RouteSettings above can target
+        # them; the proxy below would otherwise swallow both.
+        PairCreate:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HeyHttpApi
+            Path: /pair
+            Method: POST
+        PairRedeem:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HeyHttpApi
+            Path: /pair/{code}
+            Method: GET
         Proxy:
           Type: HttpApi
           Properties:
