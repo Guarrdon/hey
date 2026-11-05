@@ -7,7 +7,7 @@ description: >-
   friend, wants to add a friend via a pairing code, wants to check for
   incoming shares, or wants to point hey at a relay URL. Backed by a small AWS relay (Lambda + S3) and a local key
   store at ~/.hey/config.json.
-model: haiku-4-5
+model: claude-haiku-5-5
 ---
 
 # hey
